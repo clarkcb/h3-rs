@@ -2,12 +2,17 @@ extern crate libc;
 
 #[link(name = "h3")]
 extern "C" {
-    fn geoToH3(g: *const GeoCoordRads, res: i32) -> u64;
-    fn h3ToGeo(h3: u64, g: *mut GeoCoordRads);
+    fn geoToH3(g: *const GeoCoordInternal, res: i32) -> u64;
+    fn h3ToGeo(h3: u64, g: *mut GeoCoordInternal);
+    fn h3ToGeoBoundary(h3: u64, gp: *mut GeoBoundaryInternal);
 }
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const RAD_TO_DEG: f64 = 180.0 / std::f64::consts::PI;
+
+// Maximum number of cell boundary vertices. The worst case is a pentagon: 5 original verts and
+// 5 edge crossings.
+const MAX_CELL_BNDRY_VERTS: usize = 10;
 
 /// H3Index is a point in the H3 geospatial indexing system.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -22,21 +27,41 @@ impl H3Index {
     /// TODO
     /// ```
     pub fn to_geo(self) -> GeoCoord {
-        let mut geo = GeoCoordRads { lat: 0.0, lon: 0.0 };
+        let mut geo = GeoCoordInternal::new(0.0, 0.0);
         unsafe {
             h3ToGeo(self.0, &mut geo);
         }
         geo.to_deg()
     }
+
+    /// Finds the boundary of the index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// TODO
+    /// ```
+    pub fn to_geo_boundary(self) -> GeoBoundary {
+        let mut gb = GeoBoundaryInternal::new();
+        unsafe {
+            h3ToGeoBoundary(self.0, &mut gb);
+        }
+        gb.convert()
+    }
 }
 
 #[repr(C)]
-pub struct GeoCoordRads {
+#[derive(Debug, Copy, Clone)]
+pub struct GeoCoordInternal {
     pub lat: f64,
     pub lon: f64,
 }
 
-impl GeoCoordRads {
+impl GeoCoordInternal {
+    pub fn new(lat: f64, lon: f64) -> GeoCoordInternal {
+        GeoCoordInternal { lat, lon }
+    }
+
     fn to_deg(&self) -> GeoCoord {
         GeoCoord::new(self.lat * RAD_TO_DEG, self.lon * RAD_TO_DEG)
     }
@@ -71,11 +96,8 @@ impl GeoCoord {
         GeoCoord { lat, lon }
     }
 
-    fn to_radians(&self) -> GeoCoordRads {
-        GeoCoordRads {
-            lat: self.lat * DEG_TO_RAD,
-            lon: self.lon * DEG_TO_RAD,
-        }
+    fn to_radians(&self) -> GeoCoordInternal {
+        GeoCoordInternal::new(self.lat * DEG_TO_RAD, self.lon * DEG_TO_RAD)
     }
 
     /// Indexes the location at the specified resolution.
@@ -94,12 +116,47 @@ impl GeoCoord {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct GeoBoundaryInternal {
+    num_verts: i32,
+    verts: [GeoCoordInternal; MAX_CELL_BNDRY_VERTS],
+}
+
+impl GeoBoundaryInternal {
+    fn new() -> GeoBoundaryInternal {
+        GeoBoundaryInternal {
+            num_verts: 0,
+            verts: [GeoCoordInternal::new(0.0, 0.0); MAX_CELL_BNDRY_VERTS],
+        }
+    }
+
+    fn convert(&self) -> GeoBoundary {
+        let mut verts = Vec::with_capacity(self.num_verts as usize);
+        for i in 0..self.num_verts {
+            verts.push(self.verts[i as usize].to_deg());
+        }
+        GeoBoundary { verts }
+    }
+}
+
+/// GeoBoundary is a collection of points which defines the boundary of a cell.
+#[derive(Debug, Clone)]
+pub struct GeoBoundary {
+    pub verts: Vec<GeoCoord>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_to_geo() {
+        // TODO
+    }
+
+    #[test]
+    fn test_to_geo_boundary() {
         // TODO
     }
 
