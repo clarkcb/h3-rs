@@ -1,51 +1,60 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-// The C stdlib function strtold is included in the binding and it returns a `long double`
-// which bindgen converts to the Rust type u128. Unfortunately, this generates a compiler
-// warning because "128-bit integers don't currently have a known stable API". The bindgen
-// issue https://github.com/rust-lang/rust-bindgen/issues/1549 contains further details.
-#![allow(improper_ctypes)]
+extern crate libc;
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+#[link(name = "h3")]
+extern "C" {
+    fn geoToH3(g: *const GeoCoordRads, res: i32) -> H3Index;
+}
+
+const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
+
+/// H3Index is a point in the H3 geospatial indexing system.
+pub type H3Index = u64;
+
+#[repr(C)]
+pub struct GeoCoordRads {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+impl GeoCoordRads {
+    fn to_h3(&self, res: i32) -> H3Index {
+        unsafe { geoToH3(self, res) }
+    }
+}
+
+/// GeoCoord is a point on the earth. It is comprised of a latitude and longitude expressed in
+/// degrees. The C API for H3 expects the latitude and longitude to be expressed in radians so
+/// the coordinates are transparently converted to radians before being passed to the C library.
+#[derive(Debug, Copy, Clone)]
+pub struct GeoCoord {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+impl GeoCoord {
+    fn to_radians(&self) -> GeoCoordRads {
+        GeoCoordRads {
+            lat: self.lat * DEG_TO_RAD,
+            lon: self.lon * DEG_TO_RAD,
+        }
+    }
+
+    pub fn to_h3(&self, res: i32) -> H3Index {
+        self.to_radians().to_h3(res)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // I'm not sure why this test is failing, I'm using the same inputs as the TestFromGeo
-    // test in the Golang library. I need to investigate further.
-    //
-    // #[test]
-    // fn test_geo_to_h3() {
-    //     let geo = GeoCoord {
-    //         lat: 67.194013596,
-    //         lon: 191.598258018,
-    //     };
-    //     let expected: H3Index = 0x850dab63fffffff;
-    //     let actual: H3Index;
-
-    //     unsafe {
-    //         actual = geoToH3(&geo, 5);
-    //     }
-    //     assert_eq!(actual, expected);
-    // }
-
     #[test]
-    fn test_resolution() {
+    fn test_to_h3() {
         let geo = GeoCoord {
-            lat: 67.1509268640,
-            lon: -168.3908885810,
+            lat: 67.194013596,
+            lon: 191.598258018,
         };
 
-        for i in 1..16 {
-            let h: H3Index;
-            let res: i32;
-            unsafe {
-                h = geoToH3(&geo, i);
-                res = h3GetResolution(h);
-            }
-            assert_eq!(res, i);
-        }
+        assert_eq!(geo.to_h3(5), 0x850dab63fffffff);
     }
 }

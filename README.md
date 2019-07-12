@@ -1,4 +1,4 @@
-# h3-rs
+# H3-Rust
 
 This crate contains binding to [Uber's H3 Library]. It is currently a work in progress.
 

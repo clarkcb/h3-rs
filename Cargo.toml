@@ -5,6 +5,4 @@ authors = ["Jerome Froelich <jeromefroelich@hotmail.com>"]
 edition = "2018"
 
 [dependencies]
-
-[build-dependencies]
-bindgen = "0.50"
+libc = "0.2"
