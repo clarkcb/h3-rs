@@ -5,6 +5,7 @@ extern "C" {
     fn geoToH3(g: *const GeoCoordInternal, res: i32) -> u64;
     fn h3ToGeo(h3: u64, g: *mut GeoCoordInternal);
     fn h3ToGeoBoundary(h3: u64, gp: *mut GeoBoundaryInternal);
+    fn h3GetResolution(h: u64) -> i32;
 }
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
@@ -19,12 +20,30 @@ const MAX_CELL_BNDRY_VERTS: usize = 10;
 pub struct H3Index(u64);
 
 impl H3Index {
+    /// Creates a new `H3Index` from the given point.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// extern crate h3_rs as h3;
+    /// use h3::H3Index;
+    ///
+    /// let h = H3Index::new(0x850dab63fffffff);
+    /// ```
+    pub fn new(h: u64) -> Self {
+        Self(h)
+    }
+
     /// Finds the centroid of the index.
     ///
     /// # Example
     ///
     /// ```
-    /// TODO
+    /// extern crate h3_rs as h3;
+    /// use h3::{GeoCoord, H3Index};
+    ///
+    /// let h = H3Index::new(0x850dab63fffffff);
+    /// assert_eq!(h.to_geo(), GeoCoord::new(67.15092686397712, -168.39088858096966));
     /// ```
     pub fn to_geo(self) -> GeoCoord {
         let mut geo = GeoCoordInternal::new(0.0, 0.0);
@@ -39,7 +58,7 @@ impl H3Index {
     /// # Example
     ///
     /// ```
-    /// TODO
+    ///  // TODO
     /// ```
     pub fn to_geo_boundary(self) -> GeoBoundary {
         let mut gb = GeoBoundaryInternal::new();
@@ -47,6 +66,21 @@ impl H3Index {
             h3ToGeoBoundary(self.0, &mut gb);
         }
         gb.convert()
+    }
+
+    /// Returns the resolution of the index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// extern crate h3_rs as h3;
+    /// use h3::H3Index;
+    ///
+    /// let h = H3Index::new(0x850dab63fffffff);
+    /// assert_eq!(h.resolution(), 5);
+    /// ```
+    pub fn resolution(self) -> i32 {
+        unsafe { h3GetResolution(self.0) }
     }
 }
 
@@ -58,8 +92,8 @@ pub struct GeoCoordInternal {
 }
 
 impl GeoCoordInternal {
-    pub fn new(lat: f64, lon: f64) -> GeoCoordInternal {
-        GeoCoordInternal { lat, lon }
+    pub fn new(lat: f64, lon: f64) -> Self {
+        Self { lat, lon }
     }
 
     fn to_deg(&self) -> GeoCoord {
@@ -92,8 +126,8 @@ impl GeoCoord {
     ///
     /// let mut coord: GeoCoord = GeoCoord::new(67.194013596, 191.598258018);
     /// ```
-    pub fn new(lat: f64, lon: f64) -> GeoCoord {
-        GeoCoord { lat, lon }
+    pub fn new(lat: f64, lon: f64) -> Self {
+        Self { lat, lon }
     }
 
     fn to_radians(&self) -> GeoCoordInternal {
@@ -109,7 +143,7 @@ impl GeoCoord {
     /// use h3::{GeoCoord, H3Index};
     ///
     /// let mut coord: GeoCoord = GeoCoord::new(67.194013596, 191.598258018);
-    /// // TODO: assert_eq!(coord.to_h3(5), H3Index(0x850dab63fffffff));
+    /// assert_eq!(coord.to_h3(5), H3Index::new(0x850dab63fffffff));
     /// ```
     pub fn to_h3(&self, res: i32) -> H3Index {
         self.to_radians().to_h3(res)
@@ -124,8 +158,8 @@ struct GeoBoundaryInternal {
 }
 
 impl GeoBoundaryInternal {
-    fn new() -> GeoBoundaryInternal {
-        GeoBoundaryInternal {
+    fn new() -> Self {
+        Self {
             num_verts: 0,
             verts: [GeoCoordInternal::new(0.0, 0.0); MAX_CELL_BNDRY_VERTS],
         }
@@ -150,23 +184,46 @@ pub struct GeoBoundary {
 mod tests {
     use super::*;
 
+    struct Setup {
+        h3_index: H3Index,
+        geo_coord: GeoCoord,
+    }
+
+    impl Setup {
+        fn new() -> Self {
+            Self {
+                h3_index: H3Index::new(0x850dab63fffffff),
+                geo_coord: GeoCoord::new(67.15092686397712, -168.39088858096966),
+            }
+        }
+    }
+
     #[test]
-    fn test_to_geo() {
+    fn test_h3_to_geo() {
+        let setup = Setup::new();
+
+        assert_eq!(setup.h3_index.to_geo(), setup.geo_coord);
+    }
+
+    #[test]
+    fn test_h3_to_geo_boundary() {
         // TODO
     }
 
     #[test]
-    fn test_to_geo_boundary() {
-        // TODO
+    fn test_h3_resolution() {
+        let setup = Setup::new();
+
+        for res in 0..16 {
+            let h = setup.geo_coord.to_h3(res);
+            assert_eq!(h.resolution(), res)
+        }
     }
 
     #[test]
-    fn test_to_h3() {
-        let geo = GeoCoord {
-            lat: 67.194013596,
-            lon: 191.598258018,
-        };
+    fn test_geo_to_h3() {
+        let setup = Setup::new();
 
-        assert_eq!(geo.to_h3(5), H3Index(0x850dab63fffffff));
+        assert_eq!(setup.geo_coord.to_h3(5), setup.h3_index);
     }
 }
