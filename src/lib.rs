@@ -1,6 +1,11 @@
 extern crate libc;
 
-use libc::{c_int, c_ulonglong};
+#[macro_use]
+extern crate failure;
+
+use std::ffi::CString;
+
+use libc::{c_char, c_int, c_ulonglong};
 
 #[link(name = "h3")]
 extern "C" {
@@ -9,6 +14,7 @@ extern "C" {
     fn h3ToGeoBoundary(h3: c_ulonglong, gp: *mut GeoBoundaryInternal);
     fn h3GetResolution(h: c_ulonglong) -> c_int;
     fn h3GetBaseCell(h: c_ulonglong) -> c_int;
+    fn stringToH3(str: *const c_char) -> c_ulonglong;
     fn h3IsValid(h: c_ulonglong) -> c_int;
 }
 
@@ -35,15 +41,48 @@ impl H3Index {
     ///
     /// let h = H3Index::new(0x850dab63fffffff).unwrap();
     /// ```
-    pub fn new(h: u64) -> Option<Self> {
+    pub fn new(h: u64) -> Result<Self, Error> {
         let res;
         unsafe {
             res = h3IsValid(h);
         }
         if res == 0 {
-            return None;
+            return Err(Error::InvalidIndex { value: h });
         }
-        Some(Self(h))
+        Ok(Self(h))
+    }
+
+    /// Converts a string to an H3 index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// extern crate h3_rs as h3;
+    /// use h3::H3Index;
+    ///
+    /// assert_eq!(H3Index::from_str("0x850dab63fffffff").unwrap(), H3Index::new(0x850dab63fffffff).unwrap())
+    /// ```
+    pub fn from_str(s: &str) -> Result<Self, Error> {
+        let c_str = match CString::new(s) {
+            Ok(c_str) => c_str,
+            Err(_) => {
+                return Err(Error::InvalidString {
+                    value: s.to_owned(),
+                })
+            }
+        };
+
+        let h;
+        unsafe {
+            h = stringToH3(c_str.as_ptr());
+        }
+
+        if h == 0 {
+            return Err(Error::InvalidString {
+                value: s.to_owned(),
+            });
+        }
+        return Ok(H3Index(h));
     }
 
     /// Finds the centroid of the index.
@@ -170,14 +209,14 @@ impl GeoCoord {
     /// use h3::{GeoCoord, H3Index};
     ///
     /// let mut coord: GeoCoord = GeoCoord::new(67.194013596, 191.598258018);
-    /// assert_eq!(coord.to_h3(5), H3Index::new(0x850dab63fffffff));
+    /// assert_eq!(coord.to_h3(5).unwrap(), H3Index::new(0x850dab63fffffff).unwrap());
     /// ```
-    pub fn to_h3(&self, res: i32) -> Option<H3Index> {
+    pub fn to_h3(&self, res: i32) -> Result<H3Index, Error> {
         let index = self.to_radians().to_h3(res);
         if index.0 == 0 {
-            return None;
+            return Err(Error::FailedConversion);
         }
-        return Some(index);
+        return Ok(index);
     }
 }
 
@@ -211,6 +250,16 @@ pub struct GeoBoundary {
     pub verts: Vec<GeoCoord>,
 }
 
+#[derive(Debug, Fail)]
+pub enum Error {
+    #[fail(display = "invalid value for H3 index: {}", value)]
+    InvalidIndex { value: u64 },
+    #[fail(display = "invalid string representation of H3 index: {}", value)]
+    InvalidString { value: String },
+    #[fail(display = "could not convert to H3 index")]
+    FailedConversion,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +276,15 @@ mod tests {
                 geo_coord: GeoCoord::new(67.15092686397712, -168.39088858096966),
             }
         }
+    }
+
+    #[test]
+    fn test_h3_from_str() {
+        assert_eq!(
+            H3Index::from_str("0x850dab63fffffff").unwrap(),
+            H3Index::new(0x850dab63fffffff).unwrap()
+        );
+        assert!(H3Index::from_str("invalid string").is_err());
     }
 
     #[test]
@@ -262,8 +320,8 @@ mod tests {
     fn test_geo_to_h3() {
         let setup = Setup::new();
 
-        assert_eq!(setup.geo_coord.to_h3(5), Some(setup.h3_index));
-        assert_eq!(setup.geo_coord.to_h3(-1), None);
-        assert_eq!(setup.geo_coord.to_h3(17), None);
+        assert_eq!(setup.geo_coord.to_h3(5).unwrap(), setup.h3_index);
+        assert!(setup.geo_coord.to_h3(-1).is_err());
+        assert!(setup.geo_coord.to_h3(17).is_err());
     }
 }

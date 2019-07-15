@@ -10,9 +10,10 @@ list of the H3 C API that is covered by the crate is captured below:
 - Inspection
   - [X] `h3GetResolution`
   - [X] `h3GetBaseCell`
-  - [ ] `stringToH3`
+  - [X] `stringToH3`
   - [ ] `h3ToString`
   - [ ] `h3IsResClassIII`
+  - [ ] `h3IsPentagon`
 - Traversal
   - [ ] `kRing`
   - [ ] `maxKringSize`
