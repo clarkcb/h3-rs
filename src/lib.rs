@@ -4,8 +4,10 @@ extern crate libc;
 extern crate failure;
 
 use std::ffi::CString;
+use std::fmt;
+use std::str;
 
-use libc::{c_char, c_int, c_ulonglong};
+use libc::{c_char, c_int, c_ulonglong, size_t};
 
 #[link(name = "h3")]
 extern "C" {
@@ -15,6 +17,7 @@ extern "C" {
     fn h3GetResolution(h: c_ulonglong) -> c_int;
     fn h3GetBaseCell(h: c_ulonglong) -> c_int;
     fn stringToH3(str: *const c_char) -> c_ulonglong;
+    fn h3ToString(h: c_ulonglong, str: *const c_char, sz: size_t);
     fn h3IsValid(h: c_ulonglong) -> c_int;
 }
 
@@ -147,6 +150,21 @@ impl H3Index {
     /// ```
     pub fn base_cell(self) -> i32 {
         unsafe { h3GetBaseCell(self.0) }
+    }
+}
+
+impl fmt::Display for H3Index {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut buf = vec![0u8; 17];
+        unsafe {
+            h3ToString(self.0, buf.as_mut_ptr() as *mut i8, buf.capacity());
+        }
+        let res = String::from_utf8(buf);
+        let s = res
+            .as_ref()
+            .map(|s| s.trim_end_matches('\0'))
+            .unwrap_or("<invalid>");
+        write!(f, "{}", s)
     }
 }
 
@@ -314,6 +332,13 @@ mod tests {
         let setup = Setup::new();
 
         assert_eq!(setup.h3_index.base_cell(), 6);
+    }
+
+    #[test]
+    fn test_h3_display() {
+        let setup = Setup::new();
+
+        assert_eq!(format!("{}", setup.h3_index), "850dab63fffffff");
     }
 
     #[test]
