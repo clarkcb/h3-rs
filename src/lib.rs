@@ -6,6 +6,7 @@ extern "C" {
     fn h3ToGeo(h3: u64, g: *mut GeoCoordInternal);
     fn h3ToGeoBoundary(h3: u64, gp: *mut GeoBoundaryInternal);
     fn h3GetResolution(h: u64) -> i32;
+    fn h3GetBaseCell(h: u64) -> i32;
 }
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
@@ -81,6 +82,21 @@ impl H3Index {
     /// ```
     pub fn resolution(self) -> i32 {
         unsafe { h3GetResolution(self.0) }
+    }
+
+    /// Returns the base cell number of the index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// extern crate h3_rs as h3;
+    /// use h3::H3Index;
+    ///
+    /// let h = H3Index::new(0x850dab63fffffff);
+    /// assert_eq!(h.base_cell(), 6);
+    /// ```
+    pub fn base_cell(self) -> i32 {
+        unsafe { h3GetBaseCell(self.0) }
     }
 }
 
@@ -216,8 +232,15 @@ mod tests {
 
         for res in 0..16 {
             let h = setup.geo_coord.to_h3(res);
-            assert_eq!(h.resolution(), res)
+            assert_eq!(h.resolution(), res);
         }
+    }
+
+    #[test]
+    fn test_h3_base_cell() {
+        let setup = Setup::new();
+
+        assert_eq!(setup.h3_index.base_cell(), 6);
     }
 
     #[test]
