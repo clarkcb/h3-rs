@@ -159,10 +159,14 @@ impl GeoCoord {
     /// use h3::{GeoCoord, H3Index};
     ///
     /// let mut coord: GeoCoord = GeoCoord::new(67.194013596, 191.598258018);
-    /// assert_eq!(coord.to_h3(5), H3Index::new(0x850dab63fffffff));
+    /// assert_eq!(coord.to_h3(5), Some(H3Index::new(0x850dab63fffffff)));
     /// ```
-    pub fn to_h3(&self, res: i32) -> H3Index {
-        self.to_radians().to_h3(res)
+    pub fn to_h3(&self, res: i32) -> Option<H3Index> {
+        let index = self.to_radians().to_h3(res);
+        if index.0 == 0 {
+            return None;
+        }
+        return Some(index);
     }
 }
 
@@ -231,7 +235,7 @@ mod tests {
         let setup = Setup::new();
 
         for res in 0..16 {
-            let h = setup.geo_coord.to_h3(res);
+            let h = setup.geo_coord.to_h3(res).unwrap();
             assert_eq!(h.resolution(), res);
         }
     }
@@ -247,6 +251,8 @@ mod tests {
     fn test_geo_to_h3() {
         let setup = Setup::new();
 
-        assert_eq!(setup.geo_coord.to_h3(5), setup.h3_index);
+        assert_eq!(setup.geo_coord.to_h3(5), Some(setup.h3_index));
+        assert_eq!(setup.geo_coord.to_h3(-1), None);
+        assert_eq!(setup.geo_coord.to_h3(17), None);
     }
 }
