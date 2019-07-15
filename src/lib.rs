@@ -1,12 +1,15 @@
 extern crate libc;
 
+use libc::{c_int, c_ulonglong};
+
 #[link(name = "h3")]
 extern "C" {
-    fn geoToH3(g: *const GeoCoordInternal, res: i32) -> u64;
-    fn h3ToGeo(h3: u64, g: *mut GeoCoordInternal);
-    fn h3ToGeoBoundary(h3: u64, gp: *mut GeoBoundaryInternal);
-    fn h3GetResolution(h: u64) -> i32;
-    fn h3GetBaseCell(h: u64) -> i32;
+    fn geoToH3(g: *const GeoCoordInternal, res: c_int) -> c_ulonglong;
+    fn h3ToGeo(h3: c_ulonglong, g: *mut GeoCoordInternal);
+    fn h3ToGeoBoundary(h3: c_ulonglong, gp: *mut GeoBoundaryInternal);
+    fn h3GetResolution(h: c_ulonglong) -> c_int;
+    fn h3GetBaseCell(h: c_ulonglong) -> c_int;
+    fn h3IsValid(h: c_ulonglong) -> c_int;
 }
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
@@ -21,7 +24,8 @@ const MAX_CELL_BNDRY_VERTS: usize = 10;
 pub struct H3Index(u64);
 
 impl H3Index {
-    /// Creates a new `H3Index` from the given point.
+    /// Creates a new `H3Index` from the given point. If the point is not a valid index in H3
+    /// then `None` is returned.
     ///
     /// # Example
     ///
@@ -29,13 +33,17 @@ impl H3Index {
     /// extern crate h3_rs as h3;
     /// use h3::H3Index;
     ///
-    /// let h = H3Index::new(0x850dab63fffffff);
+    /// let h = H3Index::new(0x850dab63fffffff).unwrap();
     /// ```
-    pub fn new(h: u64) -> Self {
-        // TODO: This method should return an Option and check if the provided `u64` is valid,
-        // returning `None` if it isn't. This approach will let us ensure that only valid
-        // indices can be created.
-        Self(h)
+    pub fn new(h: u64) -> Option<Self> {
+        let res;
+        unsafe {
+            res = h3IsValid(h);
+        }
+        if res == 0 {
+            return None;
+        }
+        Some(Self(h))
     }
 
     /// Finds the centroid of the index.
@@ -46,7 +54,7 @@ impl H3Index {
     /// extern crate h3_rs as h3;
     /// use h3::{GeoCoord, H3Index};
     ///
-    /// let h = H3Index::new(0x850dab63fffffff);
+    /// let h = H3Index::new(0x850dab63fffffff).unwrap();
     /// assert_eq!(h.to_geo(), GeoCoord::new(67.15092686397712, -168.39088858096966));
     /// ```
     pub fn to_geo(self) -> GeoCoord {
@@ -80,7 +88,7 @@ impl H3Index {
     /// extern crate h3_rs as h3;
     /// use h3::H3Index;
     ///
-    /// let h = H3Index::new(0x850dab63fffffff);
+    /// let h = H3Index::new(0x850dab63fffffff).unwrap();
     /// assert_eq!(h.resolution(), 5);
     /// ```
     pub fn resolution(self) -> i32 {
@@ -95,7 +103,7 @@ impl H3Index {
     /// extern crate h3_rs as h3;
     /// use h3::H3Index;
     ///
-    /// let h = H3Index::new(0x850dab63fffffff);
+    /// let h = H3Index::new(0x850dab63fffffff).unwrap();
     /// assert_eq!(h.base_cell(), 6);
     /// ```
     pub fn base_cell(self) -> i32 {
@@ -162,7 +170,7 @@ impl GeoCoord {
     /// use h3::{GeoCoord, H3Index};
     ///
     /// let mut coord: GeoCoord = GeoCoord::new(67.194013596, 191.598258018);
-    /// assert_eq!(coord.to_h3(5), Some(H3Index::new(0x850dab63fffffff)));
+    /// assert_eq!(coord.to_h3(5), H3Index::new(0x850dab63fffffff));
     /// ```
     pub fn to_h3(&self, res: i32) -> Option<H3Index> {
         let index = self.to_radians().to_h3(res);
@@ -215,7 +223,7 @@ mod tests {
     impl Setup {
         fn new() -> Self {
             Self {
-                h3_index: H3Index::new(0x850dab63fffffff),
+                h3_index: H3Index::new(0x850dab63fffffff).unwrap(),
                 geo_coord: GeoCoord::new(67.15092686397712, -168.39088858096966),
             }
         }
