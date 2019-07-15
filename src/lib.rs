@@ -32,6 +32,9 @@ impl H3Index {
     /// let h = H3Index::new(0x850dab63fffffff);
     /// ```
     pub fn new(h: u64) -> Self {
+        // TODO: This method should return an Option and check if the provided `u64` is valid,
+        // returning `None` if it isn't. This approach will let us ensure that only valid
+        // indices can be created.
         Self(h)
     }
 
