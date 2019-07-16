@@ -11,21 +11,32 @@ use libc::{c_char, c_int, c_ulonglong, size_t};
 
 #[link(name = "h3")]
 extern "C" {
+    // Indexing.
     fn geoToH3(g: *const GeoCoordInternal, res: c_int) -> c_ulonglong;
     fn h3ToGeo(h3: c_ulonglong, g: *mut GeoCoordInternal);
     fn h3ToGeoBoundary(h3: c_ulonglong, gp: *mut GeoBoundaryInternal);
+
+    // Inspection.
     fn h3GetResolution(h: c_ulonglong) -> c_int;
     fn h3GetBaseCell(h: c_ulonglong) -> c_int;
     fn stringToH3(str: *const c_char) -> c_ulonglong;
     fn h3ToString(h: c_ulonglong, str: *const c_char, sz: size_t);
     fn h3IsValid(h: c_ulonglong) -> c_int;
+    fn h3IsResClassIII(h: c_ulonglong) -> c_int;
+    fn h3IsPentagon(h: c_ulonglong) -> c_int;
+
+    // Traversal.
+    fn h3Distance(origin: c_ulonglong, h3: c_ulonglong) -> c_int;
+
+    // Hierarchy.
+    fn h3ToParent(h: c_ulonglong, parentRes: c_int) -> c_ulonglong;
 }
 
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 const RAD_TO_DEG: f64 = 180.0 / std::f64::consts::PI;
 
-// Maximum number of cell boundary vertices. The worst case is a pentagon: 5 original verts and
-// 5 edge crossings.
+// Maximum number of cell boundary vertices. The worst case is a pentagon: 5 original verts
+// and 5 edge crossings.
 const MAX_CELL_BNDRY_VERTS: usize = 10;
 
 /// H3Index is a point in the H3 geospatial indexing system.
@@ -33,8 +44,8 @@ const MAX_CELL_BNDRY_VERTS: usize = 10;
 pub struct H3Index(u64);
 
 impl H3Index {
-    /// Creates a new `H3Index` from the given point. If the point is not a valid index in H3
-    /// then `None` is returned.
+    /// Creates a new `H3Index` from the given point. If the point is not a valid index in
+    /// H3 then `None` is returned.
     ///
     /// # Example
     ///
@@ -45,11 +56,11 @@ impl H3Index {
     /// let h = H3Index::new(0x850dab63fffffff).unwrap();
     /// ```
     pub fn new(h: u64) -> Result<Self, Error> {
-        let res;
+        let valid;
         unsafe {
-            res = h3IsValid(h);
+            valid = h3IsValid(h);
         }
-        if res == 0 {
+        if valid == 0 {
             return Err(Error::InvalidIndex { value: h });
         }
         Ok(Self(h))
@@ -63,7 +74,10 @@ impl H3Index {
     /// extern crate h3_rs as h3;
     /// use h3::H3Index;
     ///
-    /// assert_eq!(H3Index::from_str("0x850dab63fffffff").unwrap(), H3Index::new(0x850dab63fffffff).unwrap())
+    /// assert_eq!(
+    ///   H3Index::from_str("0x850dab63fffffff").unwrap(),
+    ///   H3Index::new(0x850dab63fffffff).unwrap()
+    /// )
     /// ```
     pub fn from_str(s: &str) -> Result<Self, Error> {
         let c_str = match CString::new(s) {
@@ -150,6 +164,79 @@ impl H3Index {
     /// ```
     pub fn base_cell(self) -> i32 {
         unsafe { h3GetBaseCell(self.0) }
+    }
+
+    /// Returns a `bool` indicating whether this index has a resolution with a Class
+    /// III orientation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// extern crate h3_rs as h3;
+    /// use h3::H3Index;
+    ///
+    /// assert!(H3Index::new(0x850dab63fffffff).unwrap().is_res_class_3());
+    /// ```
+    pub fn is_res_class_3(self) -> bool {
+        unsafe { h3IsResClassIII(self.0) != 0 }
+    }
+
+    /// Returns a `bool` indicating whether this index represents a pentagonal cell.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// extern crate h3_rs as h3;
+    /// use h3::H3Index;
+    ///
+    /// assert!(H3Index::new(0x821c07fffffffff).unwrap().is_pentagon());
+    /// assert!(!H3Index::new(0x850dab63fffffff).unwrap().is_pentagon());
+    /// ```
+    pub fn is_pentagon(self) -> bool {
+        unsafe { h3IsPentagon(self.0) != 0 }
+    }
+
+    /// Returns the distance in grid cells between two indexes or an error if finding the
+    /// distance fails. Finding the distance can fail because the two indexes are not comparable
+    /// (different resolutions), too far apart, or are separated by pentagonal distortion.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // TODO
+    /// ```
+    pub fn distance(self, other: Self) -> Result<i32, Error> {
+        let d;
+        unsafe {
+            d = h3Distance(self.0, other.0);
+        }
+
+        if d < 0 {
+            return Err(Error::IncompatibleIndexes {
+                left: self,
+                right: other,
+            });
+        }
+        Ok(d)
+    }
+
+    /// Returns the parent (coarser) index containing h.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // TODO
+    /// ```
+    pub fn parent(self, res: i32) -> Result<Self, Error> {
+        let h;
+        unsafe {
+            h = h3ToParent(self.0, res);
+        }
+
+        if h == 0 {
+            return Err(Error::FailedConversion);
+        }
+        Ok(Self(h))
     }
 }
 
@@ -276,6 +363,8 @@ pub enum Error {
     InvalidString { value: String },
     #[fail(display = "could not convert to H3 index")]
     FailedConversion,
+    #[fail(display = "h3 indexes are incompatible: {} and {}", left, right)]
+    IncompatibleIndexes { left: H3Index, right: H3Index },
 }
 
 #[cfg(test)]
@@ -283,15 +372,17 @@ mod tests {
     use super::*;
 
     struct Setup {
-        h3_index: H3Index,
-        geo_coord: GeoCoord,
+        valid_index: H3Index,
+        pentagon_index: H3Index,
+        valid_geo_coord: GeoCoord,
     }
 
     impl Setup {
         fn new() -> Self {
             Self {
-                h3_index: H3Index::new(0x850dab63fffffff).unwrap(),
-                geo_coord: GeoCoord::new(67.15092686397712, -168.39088858096966),
+                valid_index: H3Index::new(0x850dab63fffffff).unwrap(),
+                pentagon_index: H3Index::new(0x821c07fffffffff).unwrap(),
+                valid_geo_coord: GeoCoord::new(67.15092686397712, -168.39088858096966),
             }
         }
     }
@@ -309,7 +400,7 @@ mod tests {
     fn test_h3_to_geo() {
         let setup = Setup::new();
 
-        assert_eq!(setup.h3_index.to_geo(), setup.geo_coord);
+        assert_eq!(setup.valid_index.to_geo(), setup.valid_geo_coord);
     }
 
     #[test]
@@ -322,7 +413,7 @@ mod tests {
         let setup = Setup::new();
 
         for res in 0..16 {
-            let h = setup.geo_coord.to_h3(res).unwrap();
+            let h = setup.valid_geo_coord.to_h3(res).unwrap();
             assert_eq!(h.resolution(), res);
         }
     }
@@ -331,22 +422,56 @@ mod tests {
     fn test_h3_base_cell() {
         let setup = Setup::new();
 
-        assert_eq!(setup.h3_index.base_cell(), 6);
+        assert_eq!(setup.valid_index.base_cell(), 6);
+    }
+
+    #[test]
+    fn test_h3_is_res_class_3() {
+        let setup = Setup::new();
+
+        assert!(setup.valid_index.is_res_class_3());
+
+        // TODO: Test an index which should return from false. From the Go package:
+        // res := Resolution(validH3Index) - 1
+        // parent := ToParent(validH3Index, res)
+        // assert.False(t, IsResClassIII(parent))
+    }
+
+    #[test]
+    fn test_h3_is_pentagon() {
+        let setup = Setup::new();
+
+        assert!(!setup.valid_index.is_pentagon());
+        assert!(setup.pentagon_index.is_pentagon());
+    }
+
+    #[test]
+    fn test_h3_distance() {
+        // let setup = Setup::new();
+
+        // TODO
+    }
+
+    #[test]
+    fn test_h3_parent() {
+        // let setup = Setup::new();
+
+        // TODO
     }
 
     #[test]
     fn test_h3_display() {
         let setup = Setup::new();
 
-        assert_eq!(format!("{}", setup.h3_index), "850dab63fffffff");
+        assert_eq!(format!("{}", setup.valid_index), "850dab63fffffff");
     }
 
     #[test]
     fn test_geo_to_h3() {
         let setup = Setup::new();
 
-        assert_eq!(setup.geo_coord.to_h3(5).unwrap(), setup.h3_index);
-        assert!(setup.geo_coord.to_h3(-1).is_err());
-        assert!(setup.geo_coord.to_h3(17).is_err());
+        assert_eq!(setup.valid_geo_coord.to_h3(5).unwrap(), setup.valid_index);
+        assert!(setup.valid_geo_coord.to_h3(-1).is_err());
+        assert!(setup.valid_geo_coord.to_h3(17).is_err());
     }
 }

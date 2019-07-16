@@ -12,8 +12,9 @@ list of the H3 C API that is covered by the crate is captured below:
   - [X] `h3GetBaseCell`
   - [X] `stringToH3`
   - [X] `h3ToString`
-  - [ ] `h3IsResClassIII`
-  - [ ] `h3IsPentagon`
+  - [X] `h3IsValid`
+  - [X] `h3IsResClassIII`
+  - [X] `h3IsPentagon`
 - Traversal
   - [ ] `kRing`
   - [ ] `maxKringSize`
